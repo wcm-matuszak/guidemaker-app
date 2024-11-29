@@ -20,3 +20,7 @@ Generate personalized one-day travel guides for any city. Built with SvelteKit, 
 2. Install dependencies: `npm install`
 3. Create `.env` file with required API keys
 4. Run development server: `npm run dev`
+
+## Coming Soon
+- Miro API integration for exporting the itineraries to whiteboards -> further editing them in collaborative way
+- Multi-day trip support, personalisation, food recommendations, exporting as map and more
