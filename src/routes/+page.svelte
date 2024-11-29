@@ -39,6 +39,7 @@
             const coordinates = data.features[0].properties.coordinates;
             const cityName = data.features[0].properties.name;
             const full_address = data.features[0].properties.full_address;
+            error = ''; // Reset error on successful selection
             getPOIs(coordinates.latitude, coordinates.longitude, cityName, full_address);
             suggestions = [];
             searchValue = '';
@@ -156,7 +157,7 @@
                                     on:keydown={(e) => e.key === 'Enter' && handleMapboxSelect(suggestion.mapbox_id)}
                                 >
                                     <div class="flex items-center">
-                                        <MapPin class="mr-2 h-4 w-4" />
+                                        <MapPin class="mr-2 h-4 w-4 flex-shrink-0" />
                                         <div class="text-left">
                                             <p class="font-medium">{suggestion.name}</p>
                                             <p class="text-sm text-muted-foreground">{suggestion.place_formatted}</p>
