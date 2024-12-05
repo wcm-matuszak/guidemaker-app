@@ -4,6 +4,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import * as Card from '$lib/components/ui/card';
 	import * as Alert from '$lib/components/ui/alert';
+	import * as Carousel from '$lib/components/ui/carousel';
 	import {
 		Search,
 		MapPin,
@@ -13,9 +14,11 @@
 		ImagePlus,
 		Highlighter,
 		Code,
-        Video,
+		Video,
 		Undo,
-		Redo
+		Redo,
+		PinOff,
+		Pin
 	} from 'lucide-svelte';
 
 	import { Editor } from '@tiptap/core';
@@ -24,8 +27,7 @@
 	import ImageExtension from '@tiptap/extension-image';
 	import Highlight from '@tiptap/extension-highlight';
 	import Iframe from '$lib/extensions/iframe';
-    //import { Gallery } from '$lib/extensions/gallery'
-
+	import { ImageGroup } from '$lib/extensions/imagegroup';
 
 	let element: HTMLElement;
 	let editor: Editor;
@@ -34,17 +36,15 @@
 		mounted = true;
 	});
 
-	
-
 	$: if (hasAllData && element && generatedGuide && !editor) {
 		editor = new Editor({
 			element: element as HTMLElement,
 			extensions: [
 				StarterKit,
 				Link,
-				ImageExtension,
+				ImageExtension.configure({ inline: true }),
 				Highlight,
-                //Gallery,
+				ImageGroup,
 				Iframe.configure({
 					allowFullscreen: true,
 					HTMLAttributes: {
@@ -58,7 +58,7 @@
 						'prose prose-sm sm:prose-base m-5 focus:outline-none whitespace-pre-wrap [&_a]:cursor-pointer'
 				}
 			},
-            content: `<div data-type="gallery"></div>${generatedGuide}`,
+			content: `<div data-type="gallery"></div>${generatedGuide}`,
 			onTransaction: () => {
 				// force re-render so `editor.isActive` works as expected
 				editor = editor;
@@ -73,11 +73,26 @@
 	let suggestions: any[] = [];
 	let loading = false;
 	let error = '';
-	let POIResults: any[] = [];
+	let SightsResults: any[] = [];
+	let RestaurantResults: any[] = [];
 	let mounted = false;
 	let generatedGuide: string | null = null;
 	let isLoading = false;
 	let hasAllData = false;
+	let pinnedPlaces: any[] = [];
+
+	$: pinnedStatus = new Set(pinnedPlaces.map((p) => p.googleMapsUri));
+
+	function togglePin(place: any) {
+		if (isPinned(place)) {
+			pinnedPlaces = pinnedPlaces.filter((p) => p.googleMapsUri !== place.googleMapsUri);
+		} else {
+			pinnedPlaces = [...pinnedPlaces, place];
+		}
+	}
+	function isPinned(place: any) {
+		return pinnedStatus.has(place.googleMapsUri);
+	}
 
 	async function handleMapboxSearch(query: string) {
 		if (query.length < 3) {
@@ -111,14 +126,19 @@
 		}
 	}
 
-	async function generateGuide(places: any[], cityName: string, full_address: string) {
+	async function generateGuide(
+		places: any[],
+		restaurants: any[],
+		cityName: string,
+		full_address: string
+	) {
 		try {
 			const response = await fetch('/api/generate-guide', {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json'
 				},
-				body: JSON.stringify({ places, cityName, full_address })
+				body: JSON.stringify({ places, restaurants, cityName, full_address })
 			});
 
 			const data = await response.json();
@@ -142,28 +162,38 @@
 		isLoading = true;
 		hasAllData = false;
 
-		const params = new URLSearchParams({
-			latitude: latitude.toString(),
-			longitude: longitude.toString(),
-			city: cityName
-		});
-
 		try {
-			const response = await fetch(`/api/points-of-interest?${params}`);
-			const data = await response.json();
+			const [sightsData, restaurantData] = await Promise.all([
+				fetch(
+					`/api/points-of-interest?${new URLSearchParams({
+						latitude: latitude.toString(),
+						longitude: longitude.toString(),
+						city: cityName,
+						query: `Top sights in ${cityName}`
+					})}`
+				).then((res) => res.json()),
+				fetch(
+					`/api/points-of-interest?${new URLSearchParams({
+						latitude: latitude.toString(),
+						longitude: longitude.toString(),
+						city: cityName,
+						query: `Local food restaurants in ${cityName}`
+					})}`
+				).then((res) => res.json())
+			]);
 
-			if (!response.ok) throw new Error(data.message || 'Failed to get POIs');
-
-			POIResults = data.places || [];
-
-			const guide = await generateGuide(POIResults, cityName, full_address);
+			// Store them separately
+			SightsResults = sightsData.places || [];
+			RestaurantResults = restaurantData.places || [];
+			const guide = await generateGuide(SightsResults, RestaurantResults, cityName, full_address);
 			if (guide) {
 				generatedGuide = guide;
 				hasAllData = true;
 			}
 		} catch (e) {
 			error = e.message;
-			POIResults = [];
+			SightsResults = [];
+			RestaurantResults = [];
 		} finally {
 			isLoading = false;
 		}
@@ -171,7 +201,7 @@
 </script>
 
 {#if mounted}
-	<div class="from-background to-muted/50 flex min-h-screen flex-col bg-gradient-to-b">
+	<div class="flex min-h-screen flex-col bg-gradient-to-b from-white to-[#FDF6E3]/50">
 		<!-- Hero Section -->
 		<div class="relative overflow-hidden pb-2 pt-20">
 			<div class="container relative">
@@ -256,146 +286,147 @@
 					</Card.Header>
 				</Card.Root>
 			{:else if hasAllData}
+				<!-- Itinerary Editor -->
 				<Card.Root>
 					<Card.Header>
 						<Card.Title>Your Travel Guide</Card.Title>
 					</Card.Header>
 					<Card.Content>
-						<div class="element relative" bind:this={element}>
-							{#if editor}
-								<div
-									id="editor-menu"
-									class="bg-background sticky top-0 z-10 flex gap-2 border-b p-2"
+						{#if editor}
+							<div
+								id="editor-menu"
+								class="bg-background sticky top-0 z-10 flex flex-wrap gap-2 border-b p-2"
+							>
+								<!-- Bold -->
+								<button
+									class="hover:bg-muted h-8 w-8 rounded border transition-colors"
+									class:active={editor?.isActive('bold')}
+									on:click={() => editor?.chain().focus().toggleBold().run()}
 								>
-									<!-- Bold -->
-									<button
-										class="hover:bg-muted h-8 w-8 rounded border transition-colors"
-										class:active={editor?.isActive('bold')}
-										on:click={() => editor?.chain().focus().toggleBold().run()}
-									>
-										<strong>B</strong>
-									</button>
+									<strong>B</strong>
+								</button>
 
-									<!-- Italic -->
-									<button
-										class="hover:bg-muted h-8 w-8 rounded border transition-colors"
-										class:active={editor?.isActive('italic')}
-										on:click={() => editor?.chain().focus().toggleItalic().run()}
-									>
-										<em>I</em>
-									</button>
+								<!-- Italic -->
+								<button
+									class="hover:bg-muted h-8 w-8 rounded border transition-colors"
+									class:active={editor?.isActive('italic')}
+									on:click={() => editor?.chain().focus().toggleItalic().run()}
+								>
+									<em>I</em>
+								</button>
 
-									<!-- Strikethrough -->
-									<button
-										class="hover:bg-muted h-8 w-8 rounded border transition-colors"
-										class:active={editor?.isActive('strike')}
-										on:click={() => editor?.chain().focus().toggleStrike().run()}
-									>
-										<span class="line-through">S</span>
-									</button>
+								<!-- Strikethrough -->
+								<button
+									class="hover:bg-muted h-8 w-8 rounded border transition-colors"
+									class:active={editor?.isActive('strike')}
+									on:click={() => editor?.chain().focus().toggleStrike().run()}
+								>
+									<span class="line-through">S</span>
+								</button>
 
-									<!-- Heading 2 -->
-									<button
-										class="hover:bg-muted h-8 w-8 rounded border transition-colors"
-										class:active={editor?.isActive('heading', { level: 2 })}
-										on:click={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
-									>
-										H2
-									</button>
+								<!-- Heading 2 -->
+								<button
+									class="hover:bg-muted h-8 w-8 rounded border transition-colors"
+									class:active={editor?.isActive('heading', { level: 2 })}
+									on:click={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
+								>
+									H2
+								</button>
 
-									<!-- Bullet List -->
-									<button
-										class="hover:bg-muted flex h-8 w-8 items-center justify-center rounded border transition-colors"
-										class:active={editor?.isActive('bulletList')}
-										on:click={() => editor?.chain().focus().toggleBulletList().run()}
-									>
-										<List class="h-4 w-4" />
-									</button>
+								<!-- Bullet List -->
+								<button
+									class="hover:bg-muted flex h-8 w-8 items-center justify-center rounded border transition-colors"
+									class:active={editor?.isActive('bulletList')}
+									on:click={() => editor?.chain().focus().toggleBulletList().run()}
+								>
+									<List class="h-4 w-4" />
+								</button>
 
-									<!-- Ordered List -->
-									<button
-										class="hover:bg-muted flex h-8 w-8 items-center justify-center rounded border transition-colors"
-										class:active={editor?.isActive('orderedList')}
-										on:click={() => editor?.chain().focus().toggleOrderedList().run()}
-									>
-										<ListOrdered class="h-4 w-4" />
-									</button>
+								<!-- Ordered List -->
+								<button
+									class="hover:bg-muted flex h-8 w-8 items-center justify-center rounded border transition-colors"
+									class:active={editor?.isActive('orderedList')}
+									on:click={() => editor?.chain().focus().toggleOrderedList().run()}
+								>
+									<ListOrdered class="h-4 w-4" />
+								</button>
 
-									<!-- Blockquote -->
-									<button
-										class="hover:bg-muted h-8 w-8 rounded border transition-colors"
-										class:active={editor?.isActive('blockquote')}
-										on:click={() => editor?.chain().focus().toggleBlockquote().run()}
-									>
-										" "
-									</button>
+								<!-- Blockquote -->
+								<button
+									class="hover:bg-muted h-8 w-8 rounded border transition-colors"
+									class:active={editor?.isActive('blockquote')}
+									on:click={() => editor?.chain().focus().toggleBlockquote().run()}
+								>
+									" "
+								</button>
 
-									<!-- Horizontal Rule -->
-									<button
-										class="hover:bg-muted h-8 w-8 rounded border transition-colors"
-										on:click={() => editor?.chain().focus().setHorizontalRule().run()}
-									>
-										―
-									</button>
+								<!-- Horizontal Rule -->
+								<button
+									class="hover:bg-muted h-8 w-8 rounded border transition-colors"
+									on:click={() => editor?.chain().focus().setHorizontalRule().run()}
+								>
+									―
+								</button>
 
-									<!-- Gallery Image Upload -->
-<button
-class="hover:bg-muted h-8 w-8 rounded border transition-colors flex items-center justify-center"
-on:click={() => {
-    const url = window.prompt('Enter image URL')
-    if (url) {
-        editor?.chain().focus().addToGallery(url).run()
-    }
-}}
->
-<ImagePlus class="h-4 w-4" />
-</button>
+								<!-- Image Insert -->
+								<button
+									class="hover:bg-muted flex h-8 w-8 items-center justify-center rounded border transition-colors"
+									on:click={() => {
+										const url = window.prompt('Enter image URL:');
+										if (url) {
+											editor?.chain().focus().setImage({ src: url }).run();
+										}
+									}}
+								>
+									<ImagePlus class="h-4 w-4" />
+								</button>
 
-                                    <!-- Iframe -->
-<button
-class="hover:bg-muted h-8 w-8 rounded border transition-colors flex items-center justify-center"
-on:click={() => {
-    const url = window.prompt('Enter youtube or tiktok URL')
-    if (url) {
-        editor?.chain().focus().setIframe({ src: url }).run()
-    }
-}}
->
-<Video class="h-4 w-4" />
-</button>
+								<!-- Iframe -->
+								<button
+									class="hover:bg-muted flex h-8 w-8 items-center justify-center rounded border transition-colors"
+									on:click={() => {
+										const url = window.prompt('Enter youtube or tiktok URL');
+										if (url) {
+											editor?.chain().focus().setIframe({ src: url }).run();
+										}
+									}}
+								>
+									<Video class="h-4 w-4" />
+								</button>
 
-									<!-- Highlight -->
-									<button
-										class="hover:bg-muted flex h-8 w-8 items-center justify-center rounded border transition-colors"
-										class:active={editor?.isActive('highlight')}
-										on:click={() => editor?.chain().focus().toggleHighlight().run()}
-									>
-										<Highlighter class="h-4 w-4" />
-									</button>
+								<!-- Highlight -->
+								<button
+									class="hover:bg-muted flex h-8 w-8 items-center justify-center rounded border transition-colors"
+									class:active={editor?.isActive('highlight')}
+									on:click={() => editor?.chain().focus().toggleHighlight().run()}
+								>
+									<Highlighter class="h-4 w-4" />
+								</button>
 
-									<!-- Code -->
-									<button
-										class="hover:bg-muted flex h-8 w-8 items-center justify-center rounded border transition-colors"
-										class:active={editor?.isActive('code')}
-										on:click={() => editor?.chain().focus().toggleCode().run()}
-									>
-										<Code class="h-4 w-4" />
-									</button>
+								<!-- Code -->
+								<button
+									class="hover:bg-muted flex h-8 w-8 items-center justify-center rounded border transition-colors"
+									class:active={editor?.isActive('code')}
+									on:click={() => editor?.chain().focus().toggleCode().run()}
+								>
+									<Code class="h-4 w-4" />
+								</button>
 
-									<!-- Clear Format -->
-									<button
-										class="hover:bg-muted flex h-8 w-8 items-center justify-center rounded border transition-colors"
-										on:click={() => editor?.chain().focus().clearNodes().unsetAllMarks().run()}
-									>
-										<RemoveFormatting class="h-4 w-4" />
-									</button>
+								<!-- Clear Format -->
+								<button
+									class="hover:bg-muted flex h-8 w-8 items-center justify-center rounded border transition-colors"
+									on:click={() => editor?.chain().focus().clearNodes().unsetAllMarks().run()}
+								>
+									<RemoveFormatting class="h-4 w-4" />
+								</button>
 
+								<div class="ml-auto flex gap-2">
 									<!-- Undo -->
 									<button
 										class="hover:bg-muted flex h-8 w-8 items-center justify-center rounded border transition-colors"
 										on:click={() => editor?.chain().focus().undo().run()}
-                                        disabled={!editor?.can().undo()}
-                                        >
+										disabled={!editor?.can().undo()}
+									>
 										<Undo class="h-4 w-4" />
 									</button>
 
@@ -403,21 +434,184 @@ on:click={() => {
 									<button
 										class="hover:bg-muted flex h-8 w-8 items-center justify-center rounded border transition-colors"
 										on:click={() => editor?.chain().focus().redo().run()}
-                                        disabled={!editor?.can().redo()}
-                                        >
+										disabled={!editor?.can().redo()}
+									>
 										<Redo class="h-4 w-4" />
 									</button>
 								</div>
-							{/if}
-						</div>
+							</div>
+						{/if}
+						<div class="element relative" bind:this={element}></div>
 					</Card.Content>
 				</Card.Root>
 
+				<!-- Carousel of Sights -->
 				<div>
-					<h2 class="mb-4 text-xl font-semibold">Points of Interest</h2>
-					<div class="grid gap-4 md:grid-cols-2">
-						{#each POIResults as place}
-							<Card.Root class="flex h-full flex-col overflow-hidden">
+					<h2 class="ml-6 mb-0 text-xl font-semibold">Popular Sights</h2>
+					<Carousel.Root opts={{ align: "start" }} class="max-w-[85vw] mx-auto scale-90">
+						<Carousel.Content class="max-w-[760px]">
+							{#each SightsResults as place}
+								<Carousel.Item class="max-w-[360px]">
+									<Card.Root class="relative flex h-full flex-col max-w-[360px] overflow-hidden">
+										<Button
+											variant="ghost"
+											size="icon"
+											class={`absolute right-2 top-2 z-10 backdrop-blur-sm ${
+												pinnedPlaces.some((p) => p.googleMapsUri === place.googleMapsUri)
+													? 'bg-white/80'
+													: 'bg-white/50'
+											}`}
+											on:click={() => togglePin(place)}
+										>
+											{#if pinnedPlaces.some((p) => p.googleMapsUri === place.googleMapsUri)}
+												<Pin fill="black" class="h-4 w-4" />
+											{:else}
+												<Pin class="h-4 w-4" />
+											{/if}
+										</Button>
+										{#if place.photos && place.photos[0]}
+											<img
+												src={`/api/place-photo?photoName=${encodeURIComponent(place.photos[0].name)}`}
+												alt={place.displayName?.text || 'Place photo'}
+												class="h-48 w-full object-cover"
+											/>
+										{/if}
+										<Card.Header>
+											<Card.Title class="truncate">
+												{place.displayName?.text || 'Unnamed Location'}
+											</Card.Title>
+											{#if place.editorialSummary}
+												<Card.Description>
+													{place.editorialSummary.text}
+												</Card.Description>
+											{/if}
+										</Card.Header>
+										<Card.Footer class="mt-auto flex items-center justify-between p-4">
+											<div class="flex items-center gap-2">
+												{#if place.rating}
+													<div class="flex items-center gap-1">
+														<span class="text-yellow-500">★</span>
+														<span>{place.rating}</span>
+														{#if place.userRatingCount}
+															<span class="text-muted-foreground text-sm">({place.userRatingCount})</span>
+														{/if}
+													</div>
+												{/if}
+											</div>
+											<Button
+												variant="outline"
+												size="sm"
+												href={place.googleMapsUri}
+												target="_blank"
+												rel="noopener noreferrer"
+											>
+												View on Maps
+											</Button>
+										</Card.Footer>
+									</Card.Root>
+								</Carousel.Item>
+							{/each}
+						</Carousel.Content>
+						<Carousel.Previous />
+        <Carousel.Next />
+					</Carousel.Root>
+				</div>
+
+				<!-- Carousel of Restaurants -->
+				<div>
+					<h2 class="ml-6 mb-0 text-xl font-semibold">Local Restaurants </h2>
+					<Carousel.Root opts={{ align: "start" }} class="max-w-[85vw] mx-auto scale-90">
+						<Carousel.Content class="max-w-[760px]">
+							{#each RestaurantResults as place}
+								<Carousel.Item class="max-w-[360px]">
+									<Card.Root class="relative flex h-full flex-col max-w-[360px] overflow-hidden">
+										<Button
+											variant="ghost"
+											size="icon"
+											class={`absolute right-2 top-2 z-10 backdrop-blur-sm ${
+												pinnedPlaces.some((p) => p.googleMapsUri === place.googleMapsUri)
+													? 'bg-white/80'
+													: 'bg-white/50'
+											}`}
+											on:click={() => togglePin(place)}
+										>
+											{#if pinnedPlaces.some((p) => p.googleMapsUri === place.googleMapsUri)}
+												<Pin fill="black" class="h-4 w-4" />
+											{:else}
+												<Pin class="h-4 w-4" />
+											{/if}
+										</Button>
+										{#if place.photos && place.photos[0]}
+											<img
+												src={`/api/place-photo?photoName=${encodeURIComponent(place.photos[0].name)}`}
+												alt={place.displayName?.text || 'Place photo'}
+												class="h-48 w-full object-cover"
+											/>
+										{/if}
+										<Card.Header>
+											<Card.Title class="truncate">
+												{place.displayName?.text || 'Unnamed Location'}
+											</Card.Title>
+											{#if place.editorialSummary}
+												<Card.Description>
+													{place.editorialSummary.text}
+												</Card.Description>
+											{/if}
+										</Card.Header>
+										<Card.Footer class="mt-auto flex items-center justify-between p-4">
+											<div class="flex items-center gap-2">
+												{#if place.rating}
+													<div class="flex items-center gap-1">
+														<span class="text-yellow-500">★</span>
+														<span>{place.rating}</span>
+														{#if place.userRatingCount}
+															<span class="text-muted-foreground text-sm">({place.userRatingCount})</span>
+														{/if}
+													</div>
+												{/if}
+											</div>
+											<Button
+												variant="outline"
+												size="sm"
+												href={place.googleMapsUri}
+												target="_blank"
+												rel="noopener noreferrer"
+											>
+												View on Maps
+											</Button>
+										</Card.Footer>
+									</Card.Root>
+								</Carousel.Item>
+							{/each}
+						</Carousel.Content>
+						<Carousel.Previous />
+        <Carousel.Next />
+					</Carousel.Root>
+				</div>
+				
+				
+				<!-- Popular Sights Cards
+				<div>
+					<h2 class="mb-4 text-xl font-semibold">Popular Sights</h2>
+					<div class="grid gap-4 sm:grid-cols-2">
+						{#each SightsResults as place}
+							<Card.Root class="relative flex h-full flex-col overflow-hidden">
+								<Button
+									variant="ghost"
+									size="icon"
+									class={`absolute right-2 top-2 z-10 backdrop-blur-sm ${
+										pinnedPlaces.some((p) => p.googleMapsUri === place.googleMapsUri)
+											? 'bg-white/80'
+											: 'bg-white/50'
+									}`}
+									on:click={() => togglePin(place)}
+								>
+									{#if pinnedPlaces.some((p) => p.googleMapsUri === place.googleMapsUri)}
+										<Pin fill="black" class="h-4 w-4" />
+									{:else}
+										<Pin class="h-4 w-4" />
+									{/if}
+								</Button>
 								{#if place.photos && place.photos[0]}
 									<img
 										src={`/api/place-photo?photoName=${encodeURIComponent(place.photos[0].name)}`}
@@ -436,17 +630,19 @@ on:click={() => {
 									{/if}
 								</Card.Header>
 								<Card.Footer class="mt-auto flex items-center justify-between p-4">
-									{#if place.rating}
-										<div class="flex items-center gap-1">
-											<span class="text-yellow-500">★</span>
-											<span>{place.rating}</span>
-											{#if place.userRatingCount}
-												<span class="text-muted-foreground text-sm">
-													({place.userRatingCount})
-												</span>
-											{/if}
-										</div>
-									{/if}
+									<div class="flex items-center gap-2">
+										{#if place.rating}
+											<div class="flex items-center gap-1">
+												<span class="text-yellow-500">★</span>
+												<span>{place.rating}</span>
+												{#if place.userRatingCount}
+													<span class="text-muted-foreground text-sm"
+														>({place.userRatingCount})</span
+													>
+												{/if}
+											</div>
+										{/if}
+									</div>
 									<Button
 										variant="outline"
 										size="sm"
@@ -460,7 +656,75 @@ on:click={() => {
 							</Card.Root>
 						{/each}
 					</div>
-				</div>
+				</div> -->
+
+				<!-- Local Restaurants Cards 
+				<div>
+					<h2 class="mb-4 text-xl font-semibold">Local Restaurants</h2>
+					<div class="grid gap-4 sm:grid-cols-2">
+						{#each RestaurantResults as place}
+							<Card.Root class="relative flex h-full flex-col overflow-hidden">
+								<Button
+									variant="ghost"
+									size="icon"
+									class={`absolute right-2 top-2 z-10 backdrop-blur-sm ${
+										pinnedPlaces.some((p) => p.googleMapsUri === place.googleMapsUri)
+											? 'bg-white/80'
+											: 'bg-white/50'
+									}`}
+									on:click={() => togglePin(place)}
+								>
+									{#if pinnedPlaces.some((p) => p.googleMapsUri === place.googleMapsUri)}
+										<Pin fill="black" class="h-4 w-4" />
+									{:else}
+										<Pin class="h-4 w-4" />
+									{/if}
+								</Button>
+								{#if place.photos && place.photos[0]}
+									<img
+										src={`/api/place-photo?photoName=${encodeURIComponent(place.photos[0].name)}`}
+										alt={place.displayName?.text || 'Place photo'}
+										class="h-48 w-full object-cover"
+									/>
+								{/if}
+								<Card.Header>
+									<Card.Title class="truncate">
+										{place.displayName?.text || 'Unnamed Location'}
+									</Card.Title>
+									{#if place.editorialSummary}
+										<Card.Description>
+											{place.editorialSummary.text}
+										</Card.Description>
+									{/if}
+								</Card.Header>
+								<Card.Footer class="mt-auto flex items-center justify-between p-4">
+									<div class="flex items-center gap-2">
+										{#if place.rating}
+											<div class="flex items-center gap-1">
+												<span class="text-yellow-500">★</span>
+												<span>{place.rating}</span>
+												{#if place.userRatingCount}
+													<span class="text-muted-foreground text-sm"
+														>({place.userRatingCount})</span
+													>
+												{/if}
+											</div>
+										{/if}
+									</div>
+									<Button
+										variant="outline"
+										size="sm"
+										href={place.googleMapsUri}
+										target="_blank"
+										rel="noopener noreferrer"
+									>
+										View on Maps
+									</Button>
+								</Card.Footer>
+							</Card.Root>
+						{/each}
+					</div>
+				</div> -->
 			{/if}
 		</main>
 		<footer class="mt-12 border-t">
@@ -509,4 +773,335 @@ on:click={() => {
 		font-weight: normal;
 	}
 
+	:global(.element .ProseMirror) {
+		--gap: 4px;
+	}
+
+	/* Photo grouping hell, starts from here to the bottom */
+	/* Remove ghost images */
+	:global(.element p > img.ProseMirror-separator) {
+		display: none !important;
+		width: 0 !important;
+		height: 0 !important;
+		position: absolute !important;
+		opacity: 0 !important;
+		pointer-events: none !important;
+		margin: 0 !important;
+		padding: 0 !important;
+	}
+
+	:global(.element p > img) {
+		margin: 0;
+	}
+
+	/* Base grid layout for 1 images */
+	:global(.element p:has(img:not(.ProseMirror-separator))) {
+		display: grid !important;
+		grid-template-columns: 1fr;
+		grid-template-rows: 1fr;
+		gap: 4px;
+		aspect-ratio: 2/1;
+		height: 300px;
+		/* border: 5px solid orange; */
+		margin: 0;
+		padding: 0;
+	}
+
+	/* Base grid layout for 2 images */
+	:global(.element p:has(img:not(.ProseMirror-separator) + img:not(.ProseMirror-separator))) {
+		display: grid !important;
+		grid-template-columns: 1fr 1fr;
+		grid-template-rows: 1fr;
+		gap: 4px;
+		aspect-ratio: 2/1;
+		height: 300px;
+		margin: 0;
+		padding: 0;
+		/* border: 5px solid red; */
+	}
+
+	/* Base grid layout for 3 images */
+	:global(
+		.element
+			p:has(
+				img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+			)
+	) {
+		display: grid !important;
+		grid-template-columns: 1fr 1fr;
+		grid-template-rows: 1fr 1fr;
+		gap: 4px;
+		aspect-ratio: 2/1;
+		height: 300px;
+		position: relative;
+		margin: 0;
+		padding: 0;
+	}
+
+	:global(
+			.element
+				p:has(
+					img:not(.ProseMirror-separator)
+						+ img:not(.ProseMirror-separator)
+						+ img:not(.ProseMirror-separator)
+				)
+		)::after {
+		content: '';
+		position: absolute;
+		top: -5px;
+		left: -5px;
+		right: -5px;
+		bottom: 27px;
+		/* border: 5px solid blue; */
+		pointer-events: none;
+	}
+
+	/* Left image */
+	:global(
+		.element
+			p:has(
+				img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+			)
+			> img:nth-child(1)
+	) {
+		grid-column: 1;
+		grid-row: span 2;
+		/* border: 5px solid yellow; */
+	}
+
+	/* Top right image */
+	:global(
+		.element
+			p:has(
+				img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+			)
+			> img:nth-child(2)
+	) {
+		grid-column: 2;
+		grid-row: 1;
+		/* border: 5px solid green; */
+	}
+
+	/* Bottom right image */
+	:global(
+		.element
+			p:has(
+				img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+			)
+			> img:nth-child(3)
+	) {
+		grid-column: 2;
+		grid-row: 2;
+		/* border: 5px solid pink; */
+	}
+
+	/* Base grid layout for 4 images */
+	:global(
+		.element
+			p:has(
+				img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+			)
+	) {
+		display: grid !important;
+		grid-template-columns: 1fr 1fr 1fr 1fr;
+		grid-template-rows: 1fr 1fr;
+		gap: 4px;
+		aspect-ratio: 2/1;
+		height: 300px;
+		margin: 0;
+		padding: 0;
+		/* border: 5px solid purple; */
+	}
+
+	/* Left image */
+	:global(
+		.element
+			p:has(
+				img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+			)
+			> img:nth-child(1)
+	) {
+		grid-column: 1 / span 2;
+		grid-row: span 2;
+		/* border: 5px solid yellow; */
+	}
+
+	/* Right top image */
+	:global(
+		.element
+			p:has(
+				img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+			)
+			> img:nth-child(2)
+	) {
+		grid-column: 3 / span 2;
+		grid-row: 1;
+		/* border: 5px solid green; */
+	}
+
+	/* Bottom right left image */
+	:global(
+		.element
+			p:has(
+				img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+			)
+			> img:nth-child(3)
+	) {
+		grid-column: 3;
+		grid-row: 2;
+		/* border: 5px solid pink; */
+	}
+
+	/* Bottom right right image */
+	:global(
+		.element
+			p:has(
+				img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+			)
+			> img:nth-child(4)
+	) {
+		grid-column: 4;
+		grid-row: 2;
+		/* border: 5px solid cyan; */
+	}
+
+	/* Base grid layout for 5 images */
+	:global(
+		.element
+			p:has(
+				img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+			)
+	) {
+		display: grid !important;
+		grid-template-columns: 1fr 1fr 1fr 1fr;
+		grid-template-rows: 1fr 1fr;
+		gap: 4px;
+		aspect-ratio: 2/1;
+		height: 300px;
+		margin: 0;
+		padding: 0;
+		/* border: 5px solid purple; */
+	}
+
+	/* Left image */
+	:global(
+		.element
+			p:has(
+				img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+			)
+			> img:nth-child(1)
+	) {
+		grid-column: 1 / span 2;
+		grid-row: span 2;
+		/* border: 5px solid yellow; */
+	}
+
+	/* Right top left image */
+	:global(
+		.element
+			p:has(
+				img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+			)
+			> img:nth-child(2)
+	) {
+		grid-column: 3;
+		grid-row: 1;
+		/* border: 5px solid green; */
+	}
+
+	/* Right top right image */
+	:global(
+		.element
+			p:has(
+				img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+			)
+			> img:nth-child(3)
+	) {
+		grid-column: 4;
+		grid-row: 1;
+		/* border: 5px solid pink; */
+	}
+
+	/* Right bottom left image */
+	:global(
+		.element
+			p:has(
+				img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+			)
+			> img:nth-child(4)
+	) {
+		grid-column: 3;
+		grid-row: 2;
+		/* border: 5px solid cyan; */
+	}
+
+	/* Right bottom right image */
+	:global(
+		.element
+			p:has(
+				img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+					+ img:not(.ProseMirror-separator)
+			)
+			> img:nth-child(5)
+	) {
+		grid-column: 4;
+		grid-row: 2;
+		/* border: 5px solid magenta; */
+	}
+
+	/* Base image styles */
+	:global(.element p > img:not(.ProseMirror-separator)) {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		min-height: 0;
+		max-height: 100%;
+		/* border: 5px solid rgb(47, 255, 0); */
+	}
 </style>

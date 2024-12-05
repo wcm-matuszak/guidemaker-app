@@ -4,8 +4,8 @@ import { mergeAttributes } from '@tiptap/core'
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     gallery: {
-      addToGallery: (src: string) => ReturnType,
-      removeFromGallery: (index: number) => ReturnType
+      addGallery: (layout: 'single' | 'double' | 'triple' | 'quad') => ReturnType,
+      addImageToGallery: (src: string, index: number) => ReturnType
     }
   }
 }
@@ -15,7 +15,7 @@ export const Gallery = Node.create({
   
   group: 'block',
   
-  content: 'image*',
+  content: 'galleryCell+',
   
   parseHTML() {
     return [{
@@ -26,29 +26,62 @@ export const Gallery = Node.create({
   renderHTML({ HTMLAttributes }) {
     return ['div', mergeAttributes(HTMLAttributes, {
       'data-type': 'gallery',
-      class: 'grid grid-cols-2 md:grid-cols-3 gap-4 my-4'
+      class: 'gallery-container'
     }), 0]
   },
 
   addCommands() {
     return {
-      addToGallery: (src) => ({ chain }) => {
+      addGallery: (layout) => ({ chain }) => {
+        const cellCount = {
+          single: 1,
+          double: 2,
+          triple: 3,
+          quad: 4
+        }[layout];
+
+        const cells = Array(cellCount).fill(0).map((_, index) => ({
+          type: 'galleryCell',
+          attrs: { index }
+        }));
+
         return chain()
           .insertContent({
-            type: 'image',
-            attrs: { 
-              src,
-              class: 'w-full h-full object-cover rounded-lg'
-            }
+            type: this.name,
+            attrs: { layout },
+            content: cells
           })
-          .run()
-      },
-      removeFromGallery: (index) => ({ chain }) => {
-        return chain()
-          .focus()
-          .deleteNode('image')
           .run()
       }
     }
+  }
+})
+
+export const GalleryCell = Node.create({
+  name: 'galleryCell',
+  
+  group: 'block',
+  
+  content: 'image?',
+  
+  addAttributes() {
+    return {
+      index: {
+        default: 0
+      }
+    }
+  },
+
+  parseHTML() {
+    return [{
+      tag: 'div[data-type="gallery-cell"]'
+    }]
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    return ['div', mergeAttributes(HTMLAttributes, {
+      'data-type': 'gallery-cell',
+      class: 'gallery-cell'
+    }), 0]
   }
 })

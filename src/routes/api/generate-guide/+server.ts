@@ -3,14 +3,15 @@ import { generateItinerary } from '$lib/server/gemini_services';
 
 export async function POST({ request }) {
     try {
-        const { places, cityName, full_address } = await request.json();
+        const { places, restaurants, cityName, full_address } = await request.json();
         
         if (!places || !Array.isArray(places) || places.length === 0) {
             return json({ error: 'Places array is required and must not be empty' }, { status: 400 });
         }
 
         const itinerary = await generateItinerary(
-            places, 
+            places,
+            restaurants,
             cityName,
             full_address 
         );
