@@ -64,7 +64,7 @@
 				editor = editor;
 			},
 			autofocus: true,
-			editable: true,
+			editable: isEditing, 
 			injectCSS: false
 		});
 	}
@@ -79,6 +79,12 @@
 	let isLoading = false;
 	let hasAllData = false;
 	let pinnedPlaces: any[] = [];
+	let isEditing = false;
+
+function toggleEdit() {
+    isEditing = !isEditing;
+    editor?.setEditable(isEditing);
+}
 
 	$: pinnedStatus = new Set(pinnedPlaces.map((p) => p.googleMapsUri));
 
@@ -308,16 +314,16 @@
 				</Card.Root>
 			{:else if hasAllData}
 				<!-- Itinerary Editor -->
-				<Card.Root>
-					<Card.Header>
-						<Card.Title>Your Travel Guide</Card.Title>
-					</Card.Header>
+				<Card.Root>					
 					<Card.Content>
 						{#if editor}
 							<div
 								id="editor-menu"
 								class="bg-background sticky top-0 z-10 flex flex-wrap gap-2 border-b p-2"
 							>
+								
+						
+								{#if isEditing}
 								<!-- Bold -->
 								<button
 									class="hover:bg-muted h-8 w-8 rounded border transition-colors"
@@ -343,6 +349,15 @@
 									on:click={() => editor?.chain().focus().toggleStrike().run()}
 								>
 									<span class="line-through">S</span>
+								</button>
+
+								<!-- Heading 1 -->
+								<button
+									class="hover:bg-muted h-8 w-8 rounded border transition-colors"
+									class:active={editor?.isActive('heading', { level: 1 })}
+									on:click={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
+								>
+									H1
 								</button>
 
 								<!-- Heading 2 -->
@@ -424,14 +439,14 @@
 									<Highlighter class="h-4 w-4" />
 								</button>
 
-								<!-- Code -->
+								<!-- Code 
 								<button
 									class="hover:bg-muted flex h-8 w-8 items-center justify-center rounded border transition-colors"
 									class:active={editor?.isActive('code')}
 									on:click={() => editor?.chain().focus().toggleCode().run()}
 								>
 									<Code class="h-4 w-4" />
-								</button>
+								</button>-->
 
 								<!-- Clear Format -->
 								<button
@@ -441,7 +456,7 @@
 									<RemoveFormatting class="h-4 w-4" />
 								</button>
 
-								<div class="ml-auto flex gap-2">
+								<div class="flex gap-2">
 									<!-- Undo -->
 									<button
 										class="hover:bg-muted flex h-8 w-8 items-center justify-center rounded border transition-colors"
@@ -460,6 +475,18 @@
 										<Redo class="h-4 w-4" />
 									</button>
 								</div>
+								{/if}
+								{#if !isEditing}
+								<Card.Title class="my-auto" >Your Travel Guide</Card.Title>
+								{/if}
+								<Button 
+									variant="outline"
+									size="sm"
+									class="ml-auto"
+									on:click={toggleEdit}
+								>
+									{isEditing ? 'Preview' : 'Edit'}
+								</Button>
 							</div>
 						{/if}
 						<div class="element relative" bind:this={element}></div>
