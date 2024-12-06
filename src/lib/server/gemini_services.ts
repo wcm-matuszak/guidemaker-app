@@ -19,8 +19,8 @@ export async function generateItinerary(places: any[], restaurants: any[],  city
       * Morning to Noon (9:00-13:00)
       * Afternoon (13:00-17:00)
       * Evening (17:00-22:00)
-    - For each time block, recommend 2-3 suitable attractions and a place to eat
-    - When mentioning a place for a first time, format it as: <a href="{googleMapsUri}" target="_blank" rel="noopener noreferrer">{displayName.text}</a>
+    - For each time block, recommend 3-4 suitable attractions and a place to eat. Make it packed with attractions.
+    - When mentioning a place, format it as: <a href="{googleMapsUri}" target="_blank" rel="noopener noreferrer">{displayName.text}</a>
     - Include specific details from editorialSummary, reviews and other provided data
     - Consider regularOpeningHours when suggesting visit times
     - Include practical tips for moving between locations using location data
@@ -28,7 +28,7 @@ export async function generateItinerary(places: any[], restaurants: any[],  city
     - Use <p> tags for paragraphs
     - Use <ul> and <li> for lists
     - Use <strong> for emphasis 
-    - Remember: When mentioning a place for a first time, format it as: <a href="{googleMapsUri}" target="_blank" rel="noopener noreferrer">{displayName.text}</a>
+    - Remember: When mentioning a place, format it as: <a href="{googleMapsUri}" target="_blank" rel="noopener noreferrer">{displayName.text}</a>
     - Do not add any HTML head, doctype, or title tags
     - Do not ask any questions
     - Do not add any conclusions or next steps
@@ -40,7 +40,6 @@ export async function generateItinerary(places: any[], restaurants: any[],  city
     try {
         const result = await model.generateContent(prompt);
         const response = await result.response;
-        console.log('Generated itinerary:', response.text());
         return response.text();
     } catch (error) {
         console.error('Error generating itinerary:', error);

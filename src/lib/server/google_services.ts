@@ -66,6 +66,7 @@ export async function searchPlaces(query: string, options: SearchOptions = {}) {
         body: JSON.stringify(requestBody)
     });
 
+
     if (!response.ok) {
         throw new Error('Failed to fetch places data');
     }

@@ -30,7 +30,7 @@
 	import { ImageGroup } from '$lib/extensions/imagegroup';
 
 	let element: HTMLElement;
-	let editor: Editor;
+	let editor: Editor | null = null;
 
 	onMount(() => {
 		mounted = true;
@@ -58,7 +58,7 @@
 						'prose prose-sm sm:prose-base m-5 focus:outline-none whitespace-pre-wrap [&_a]:cursor-pointer'
 				}
 			},
-			content: `<div data-type="gallery"></div>${generatedGuide}`,
+			content: `${generatedGuide}`,
 			onTransaction: () => {
 				// force re-render so `editor.isActive` works as expected
 				editor = editor;
@@ -71,7 +71,6 @@
 
 	let searchValue = '';
 	let suggestions: any[] = [];
-	let loading = false;
 	let error = '';
 	let SightsResults: any[] = [];
 	let RestaurantResults: any[] = [];
@@ -153,38 +152,59 @@
 		}
 	}
 
+	// Cleanup editor when generating new guide
+	function cleanupEditor() {
+		if (editor) {
+			editor.destroy();
+			editor = null;
+		}
+	}
+
 	async function getPOIs(
 		latitude: number,
 		longitude: number,
 		cityName: string,
 		full_address: string
 	) {
+		cleanupEditor();
 		isLoading = true;
 		hasAllData = false;
 
 		try {
-			const [sightsData, restaurantData] = await Promise.all([
-				fetch(
-					`/api/points-of-interest?${new URLSearchParams({
-						latitude: latitude.toString(),
-						longitude: longitude.toString(),
-						city: cityName,
-						query: `Top sights in ${cityName}`
-					})}`
-				).then((res) => res.json()),
-				fetch(
-					`/api/points-of-interest?${new URLSearchParams({
-						latitude: latitude.toString(),
-						longitude: longitude.toString(),
-						city: cityName,
-						query: `Local food restaurants in ${cityName}`
-					})}`
-				).then((res) => res.json())
-			]);
-
-			// Store them separately
+			// First fetch sights
+			const sightsResponse = await fetch(
+				`/api/points-of-interest?${new URLSearchParams({
+					latitude: latitude.toString(),
+					longitude: longitude.toString(),
+					city: cityName,
+					query: `Top sights in ${cityName}`
+				})}`
+			);
+			const sightsData = await sightsResponse.json();
 			SightsResults = sightsData.places || [];
+			console.log('Sights fetched:', SightsResults.length, 'results');
+
+			// Then fetch restaurants
+			const restaurantResponse = await fetch(
+				`/api/points-of-interest?${new URLSearchParams({
+					latitude: latitude.toString(),
+					longitude: longitude.toString(),
+					city: cityName,
+					query: `Local food restaurants in ${cityName}`
+				})}`
+			);
+			const restaurantData = await restaurantResponse.json();
 			RestaurantResults = restaurantData.places || [];
+			console.log('Restaurants fetched:', RestaurantResults.length, 'results');
+
+			// Generate guide only after both fetches complete successfully
+			console.log(
+				'Generating guide with:',
+				SightsResults.length,
+				'sights and',
+				RestaurantResults.length,
+				'restaurants'
+			);
 			const guide = await generateGuide(SightsResults, RestaurantResults, cityName, full_address);
 			if (guide) {
 				generatedGuide = guide;
@@ -194,6 +214,7 @@
 			error = e.message;
 			SightsResults = [];
 			RestaurantResults = [];
+			console.error('Error in getPOIs:', e);
 		} finally {
 			isLoading = false;
 		}
@@ -447,12 +468,12 @@
 
 				<!-- Carousel of Sights -->
 				<div>
-					<h2 class="ml-6 mb-0 text-xl font-semibold">Popular Sights</h2>
-					<Carousel.Root opts={{ align: "start" }} class="max-w-[85vw] mx-auto scale-90">
+					<h2 class="mb-0 ml-6 text-xl font-semibold">Popular Sights</h2>
+					<Carousel.Root opts={{ align: 'start' }} class="mx-auto max-w-[85vw] scale-90">
 						<Carousel.Content class="max-w-[760px]">
 							{#each SightsResults as place}
 								<Carousel.Item class="max-w-[360px]">
-									<Card.Root class="relative flex h-full flex-col max-w-[360px] overflow-hidden">
+									<Card.Root class="relative flex h-full max-w-[360px] flex-col overflow-hidden">
 										<Button
 											variant="ghost"
 											size="icon"
@@ -493,7 +514,9 @@
 														<span class="text-yellow-500">★</span>
 														<span>{place.rating}</span>
 														{#if place.userRatingCount}
-															<span class="text-muted-foreground text-sm">({place.userRatingCount})</span>
+															<span class="text-muted-foreground text-sm"
+																>({place.userRatingCount})</span
+															>
 														{/if}
 													</div>
 												{/if}
@@ -513,18 +536,18 @@
 							{/each}
 						</Carousel.Content>
 						<Carousel.Previous />
-        <Carousel.Next />
+						<Carousel.Next />
 					</Carousel.Root>
 				</div>
 
 				<!-- Carousel of Restaurants -->
 				<div>
-					<h2 class="ml-6 mb-0 text-xl font-semibold">Local Restaurants </h2>
-					<Carousel.Root opts={{ align: "start" }} class="max-w-[85vw] mx-auto scale-90">
+					<h2 class="mb-0 ml-6 text-xl font-semibold">Local Restaurants</h2>
+					<Carousel.Root opts={{ align: 'start' }} class="mx-auto max-w-[85vw] scale-90">
 						<Carousel.Content class="max-w-[760px]">
 							{#each RestaurantResults as place}
 								<Carousel.Item class="max-w-[360px]">
-									<Card.Root class="relative flex h-full flex-col max-w-[360px] overflow-hidden">
+									<Card.Root class="relative flex h-full max-w-[360px] flex-col overflow-hidden">
 										<Button
 											variant="ghost"
 											size="icon"
@@ -565,7 +588,9 @@
 														<span class="text-yellow-500">★</span>
 														<span>{place.rating}</span>
 														{#if place.userRatingCount}
-															<span class="text-muted-foreground text-sm">({place.userRatingCount})</span>
+															<span class="text-muted-foreground text-sm"
+																>({place.userRatingCount})</span
+															>
 														{/if}
 													</div>
 												{/if}
@@ -585,11 +610,10 @@
 							{/each}
 						</Carousel.Content>
 						<Carousel.Previous />
-        <Carousel.Next />
+						<Carousel.Next />
 					</Carousel.Root>
 				</div>
-				
-				
+
 				<!-- Popular Sights Cards
 				<div>
 					<h2 class="mb-4 text-xl font-semibold">Popular Sights</h2>

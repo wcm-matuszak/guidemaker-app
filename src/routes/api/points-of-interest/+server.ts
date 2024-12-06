@@ -21,7 +21,7 @@ export async function GET({ url }) {
         };
     }
 
-    const searchQuery = city ? `${query} in ${city}` : query;
+    const searchQuery = query;
     const results = await searchPlaces(searchQuery, searchOptions);
     return json(results);
 }
